@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+#[derive(Clone)]
 pub struct CesarConfig {
     key_value: Option<u8>,
     group_size: Option<usize>,
@@ -79,29 +80,44 @@ impl CesarConfig {
         return self;
     }
 
-    // pub fn encrypt_character<'a>(self, characters: &'a str) -> Result<String, &'static str> {
-    //     let add_key = |value: &str| -> String {
-    //         return (value.parse::<u8>().unwrap() + self.key_value.unwrap() % self.number_of_posibility.unwrap()).to_string()
-    //     };
+    pub fn encrypt_word(&self, word: &str) -> Result<String, &'static str> {
+        if ! self.key_value.is_some() {
+            return Err("The key value MUST be set");
+        }
 
-    //     return match self.group_size {
-    //         Some(value) if value <= 0 => Err("Error the size of characters must be upper than 0"),
-    //         Some(value) if value > 0 => {
-    //             let character_value = *self.encrypt_alphabet.unwrap().get().unwrap();
-    //             let encrypted_characters = str_to_string_vector(characters).into_iter()
-    //                 .map(|string_character| {
-    //                     let character_value = *self.encrypt_alphabet.unwrap().get(&string_character).unwrap(); 
-    //                     add_key()
-    //                 })
-    //                 .collect::<String>();
-    //             return Ok(encrypted_characters);
-    //         },
-    //         Some(_) => panic!("The groupe size is Quantum !!!!!!!!!!!!!!!!!!!!!!!"),
-    //         None => Err("Error the size of characters group undefined")
-    //     }
-    // }
+        if ! self.number_of_posibility.is_some() {
+            return Err("The number of possibility MUST be set");
+        }
 
-    fn word_to_byte_characters(self, word: &str) -> Result<String, &'static str> {
+        let add_key_value = |u8_characters: Vec<u8>| -> Vec<u8> {
+            return u8_characters.iter()
+                .map(|value| (value + self.clone().key_value.unwrap()) % self.clone().number_of_posibility.unwrap())
+                .collect::<Vec<u8>>();
+        };
+
+        let word_string_number = match self.word_to_byte_characters(word) {
+            Ok(content) => content,
+            Err(message) => return Err(message)
+        };
+
+        let word_string_number_vector = match self.characters_to_string_vector(&word_string_number) {
+            Ok(content) => content,
+            Err(message) => return Err(message) 
+        };
+
+        let encrypted_characters = match self.string_vector_to_u8_vector(word_string_number_vector) {
+            Ok(content) => add_key_value(content),
+            Err(message) => return Err(message),
+        };
+
+        return Ok(self.numbers_to_string_number(encrypted_characters).iter()
+            .map(|character_string| character_string.clone() )
+            .collect::<String>()
+        );
+
+    }
+
+    fn word_to_byte_characters(&self, word: &str) -> Result<String, &'static str> {
         let mut characters: String = String::new();
         
         for character in word.chars() {
@@ -118,7 +134,25 @@ impl CesarConfig {
         return Ok(characters);
     }
 
-    fn numbers_to_string_number(self, digit_character: Vec<u8>) -> Vec<String> {
+    fn characters_to_string_vector(&self, characters: &str) -> Result<Vec<String>, &'static str>{
+        return match self.group_size {
+            None => Err("Error the size of characters group undefined"),
+            Some(value) if value <= 0 => Err("Error the size of characters must be upper than 0"),
+            Some(_) =>  Ok(characters.chars()
+                .collect::<Vec<char>>()
+                .chunks(self.group_size.unwrap() * self.index_digit_number.unwrap() as usize)
+                .map(|chunk| chunk.iter().collect::<String>())
+                .collect::<Vec<String>>()),
+        };
+    }
+
+    fn string_vector_to_u8_vector(&self, splited_word: Vec<String>) -> Result<Vec<u8>, &'static str>{
+        return Ok(splited_word.iter()
+            .map(|element| element.parse::<u8>().expect("The character MUST be a numeric value"))
+            .collect::<Vec<u8>>());
+    }
+
+    fn numbers_to_string_number(&self, digit_character: Vec<u8>) -> Vec<String> {
         return digit_character.iter()
             .map(|number| number.to_string())
             .map(|mut string_number| {
@@ -134,29 +168,20 @@ impl CesarConfig {
             })
             .collect();
     }
-
-    fn characters_to_string_vector(self, characters: &str) -> Result<Vec<String>, &'static str>{
-        return match self.group_size {
-            None => Err("Error the size of characters group undefined"),
-            Some(value) if value <= 0 => Err("Error the size of characters must be upper than 0"),
-            Some(_) =>  Ok(characters.chars()
-                .collect::<Vec<char>>()
-                .chunks(self.group_size.unwrap() * self.index_digit_number.unwrap() as usize)
-                .map(|chunk| chunk.iter().collect::<String>())
-                .collect::<Vec<String>>()),
-        };
-    }
-
-    fn string_vector_to_u8_vector(self, splited_word: Vec<String>) -> Result<Vec<u8>, &'static str>{
-        return Ok(splited_word.iter()
-            .map(|element| element.parse::<u8>().expect("The character MUST be a numeric value"))
-            .collect::<Vec<u8>>());
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encrypt_character_test() {
+        let conf = CesarConfig::default();
+        let sample = "ABC";
+        let expected = String::from("676869");
+
+        assert_eq!(conf.encrypt_word(sample).unwrap(), expected);
+    }
 
     #[test]
     fn word_to_byte_characters_test() {
@@ -185,40 +210,6 @@ mod tests {
         let sample = "&é(";
 
         conf.word_to_byte_characters(sample).unwrap(); 
-    }
-
-    #[test]
-    fn number_to_string_number_test() {
-        let conf = CesarConfig::default();
-        let sample = vec![
-            65,
-            66,
-            67
-        ];
-        let expected = vec![
-            "65",
-            "66",
-            "67"
-        ];
-
-        assert_eq!(expected, conf.numbers_to_string_number(sample));
-    }
-
-    #[test]
-    fn number_to_string_number_smaller_than_group_size() {
-        let conf = CesarConfig::default().group_size(3);
-        let sample = vec![
-            5,
-            56,
-            67
-        ];
-        let expected = vec![
-            "005",
-            "056",
-            "067"
-        ];
-
-        assert_eq!(expected, conf.numbers_to_string_number(sample));
     }
 
     #[test]
@@ -281,7 +272,41 @@ mod tests {
             "C".to_string()
         ];
 
-        conf.string_vector_to_u8_vector(sample);
+        conf.string_vector_to_u8_vector(sample).unwrap();
+    }
+
+    #[test]
+    fn number_to_string_number_test() {
+        let conf = CesarConfig::default();
+        let sample = vec![
+            65,
+            66,
+            67
+        ];
+        let expected = vec![
+            "65",
+            "66",
+            "67"
+        ];
+
+        assert_eq!(expected, conf.numbers_to_string_number(sample));
+    }
+
+    #[test]
+    fn number_to_string_number_smaller_than_group_size() {
+        let conf = CesarConfig::default().group_size(3);
+        let sample = vec![
+            5,
+            56,
+            67
+        ];
+        let expected = vec![
+            "005",
+            "056",
+            "067"
+        ];
+
+        assert_eq!(expected, conf.numbers_to_string_number(sample));
     }
 
 }
