@@ -1,5 +1,5 @@
 [package]
-name = "cesar_encryption"
+name = "caesar_encryption"
 version = "0.1.0"
 authors = ["LAURENT Louis <louis_laurent@aol.fr>"]
 edition = "2018"

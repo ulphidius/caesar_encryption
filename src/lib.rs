@@ -4,8 +4,9 @@ use std::collections::HashMap;
 pub struct CesarConfig {
     key_value: Option<u8>,
     group_size: Option<usize>,
-    number_of_posibility: Option<u8>,
+    number_of_posibility: Option<u64>,
     index_digit_number: Option<u8>,
+    start_index: Option<u8>,
     decrypt_alphabet: Option<Box<HashMap<u8, char>>>,
     encrypt_alphabet: Option<Box<HashMap<char, u8>>>
 }
@@ -17,6 +18,7 @@ impl CesarConfig {
             group_size: None,
             number_of_posibility: None,
             index_digit_number: None,
+            start_index: None,
             decrypt_alphabet: None,
             encrypt_alphabet: None
         };
@@ -30,6 +32,7 @@ impl CesarConfig {
             group_size: Some(1),
             number_of_posibility: Some(26),
             index_digit_number: Some(2),
+            start_index: Some(65),
             decrypt_alphabet: Some(Box::new(decrypt_alphabet)),
             encrypt_alphabet: Some(Box::new(encrypt_alphabet))
         
@@ -50,6 +53,18 @@ impl CesarConfig {
         return (decrypt_alphabet, encrypt_alphabet);
     }
 
+    fn is_set(&self) -> bool {
+        if self.key_value.is_none() { return false };
+        if self.group_size.is_none() { return false };
+        if self.number_of_posibility.is_none() { return false };
+        if self.index_digit_number.is_none() { return false };
+        if self.start_index.is_none() { return false };
+        if self.decrypt_alphabet.is_none() { return false };
+        if self.encrypt_alphabet.is_none() { return false };
+
+        return true;
+    }
+
     pub fn key_value(mut self, key_value: u8) -> Self {
         self.key_value = Some(key_value);
         return self;
@@ -60,13 +75,18 @@ impl CesarConfig {
         return self;
     }
 
-    pub fn number_of_posibility(mut self, number_of_posibility: u8) -> Self {
+    pub fn number_of_posibility(mut self, number_of_posibility: u64) -> Self {
         self.number_of_posibility = Some(number_of_posibility);
         return self;
     }
 
     pub fn index_digit_number(mut self, index_digit_number: u8) -> Self {
         self.index_digit_number = Some(index_digit_number);
+        return self;
+    }
+    
+    pub fn start_index(mut self, start_index: u8) -> Self {
+        self.start_index = Some(start_index);
         return self;
     }
 
@@ -81,18 +101,18 @@ impl CesarConfig {
     }
 
     pub fn encrypt_word(&self, word: &str) -> Result<String, &'static str> {
-        if ! self.key_value.is_some() {
-            return Err("The key value MUST be set");
+        if ! self.is_set() {
+            return Err("The config MUST be set");
         }
 
-        if ! self.number_of_posibility.is_some() {
-            return Err("The number of possibility MUST be set");
+        if word.is_empty() {
+            return Ok("".to_string());
         }
 
-        let add_key_value = |u8_characters: Vec<u8>| -> Vec<u8> {
-            return u8_characters.iter()
-                .map(|value| (value + self.clone().key_value.unwrap()) % self.clone().number_of_posibility.unwrap())
-                .collect::<Vec<u8>>();
+        let add_key_value = |characters: Vec<u64>| -> Vec<u64> {
+            return characters.iter()
+                .map(|value| (value + self.key_value.unwrap() as u64) % (self.number_of_posibility.unwrap() + self.start_index.unwrap() as u64))
+                .collect::<Vec<u64>>();
         };
 
         let word_string_number = match self.word_to_byte_characters(word) {
@@ -100,17 +120,19 @@ impl CesarConfig {
             Err(message) => return Err(message)
         };
 
-        let word_string_number_vector = match self.characters_to_string_vector(&word_string_number) {
+        let string_end_completed = self.add_missing_character(word_string_number);
+
+        let word_string_number_vector = match self.characters_to_string_vector(&string_end_completed) {
             Ok(content) => content,
             Err(message) => return Err(message) 
         };
 
-        let encrypted_characters = match self.string_vector_to_u8_vector(word_string_number_vector) {
+        let encrypted_characters = match self.string_vector_to_numeric_vector(word_string_number_vector) {
             Ok(content) => add_key_value(content),
             Err(message) => return Err(message),
         };
 
-        return Ok(self.numbers_to_string_number(encrypted_characters).iter()
+        return Ok(self.numbers_to_string_number(encrypted_characters).into_iter()
             .map(|character_string| character_string.clone() )
             .collect::<String>()
         );
@@ -146,13 +168,14 @@ impl CesarConfig {
         };
     }
 
-    fn string_vector_to_u8_vector(&self, splited_word: Vec<String>) -> Result<Vec<u8>, &'static str>{
+    fn string_vector_to_numeric_vector(&self, splited_word: Vec<String>) -> Result<Vec<u64>, &'static str>{
         return Ok(splited_word.iter()
-            .map(|element| element.parse::<u8>().expect("The character MUST be a numeric value"))
-            .collect::<Vec<u8>>());
+            .map(|element| element.parse::<u64>().expect("The character MUST be a numeric value"))
+            .map(|element| element - self.index_digit_number.unwrap() as u64)
+            .collect::<Vec<u64>>());
     }
 
-    fn numbers_to_string_number(&self, digit_character: Vec<u8>) -> Vec<String> {
+    fn numbers_to_string_number(&self, digit_character: Vec<u64>) -> Vec<String> {
         return digit_character.iter()
             .map(|number| number.to_string())
             .map(|mut string_number| {
@@ -168,6 +191,14 @@ impl CesarConfig {
             })
             .collect();
     }
+
+    fn add_missing_character(&self, string_to_completed: String) -> String {
+        if string_to_completed.len() % (self.group_size.unwrap() * self.index_digit_number.unwrap() as usize) == 0 {
+            return string_to_completed; 
+        }
+
+        return self.add_missing_character([string_to_completed, "0".to_string()].concat());
+    }
 }
 
 #[cfg(test)]
@@ -175,12 +206,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn encrypt_character_test() {
+    fn encrypt_word_test() {
         let conf = CesarConfig::default();
         let sample = "ABC";
         let expected = String::from("676869");
 
         assert_eq!(conf.encrypt_word(sample).unwrap(), expected);
+    }
+
+    #[test]
+    fn encrypt_word_empty_input() {
+        let conf = CesarConfig::default();
+        let sample = "";
+
+        assert_eq!(conf.encrypt_word(sample).unwrap(), "");
+    }
+
+    #[test]
+    fn encrypt_word_group_2_test() {
+        let conf = CesarConfig::default().group_size(2).number_of_posibility(2526);
+        let sample = "ABC";
+
+        assert_eq!(conf.encrypt_word(sample).unwrap(), "15141648");
     }
 
     #[test]
@@ -246,7 +293,7 @@ mod tests {
     }
 
     #[test]
-    fn string_vector_to_u8_vector_test() {
+    fn string_vector_to_numeric_vector_test() {
         let conf = CesarConfig::default();
         let sample = vec![
             "65".to_string(),
@@ -259,12 +306,12 @@ mod tests {
             67
         ];
 
-        assert_eq!(expected, conf.string_vector_to_u8_vector(sample).unwrap());
+        assert_eq!(expected, conf.string_vector_to_numeric_vector(sample).unwrap());
     }
 
     #[test]
     #[should_panic(expected = "The character MUST be a numeric value")]
-    fn string_vector_to_u8_vector_not_numbers() {
+    fn string_vector_to_numeric_vector_not_numbers() {
         let conf = CesarConfig::default();
         let sample = vec![
             "A".to_string(),
@@ -272,7 +319,7 @@ mod tests {
             "C".to_string()
         ];
 
-        conf.string_vector_to_u8_vector(sample).unwrap();
+        conf.string_vector_to_numeric_vector(sample).unwrap();
     }
 
     #[test]
@@ -307,6 +354,24 @@ mod tests {
         ];
 
         assert_eq!(expected, conf.numbers_to_string_number(sample));
+    }
+
+    #[test]
+    fn add_missing_character_test() {
+        let conf = CesarConfig::default().index_digit_number(2).group_size(3);
+        let sample = "65".to_string();
+        let expected = "650000";
+
+        assert_eq!(conf.add_missing_character(sample), expected);
+    }
+
+    #[test]
+    fn add_missing_character_group_by_1() {
+        let conf = CesarConfig::default().index_digit_number(2).group_size(1);
+        let sample = "65".to_string();
+        let expected = "65";
+
+        assert_eq!(conf.add_missing_character(sample), expected);
     }
 
 }
