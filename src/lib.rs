@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct CesarConfig {
-    key_value: Option<u8>,
+    key_value: Option<i32>,
     group_size: Option<usize>,
-    number_of_posibility: Option<u64>,
+    number_of_posibilities: Option<u64>,
     index_digit_number: Option<u8>,
     start_index: Option<u8>,
     decrypt_alphabet: Option<Box<HashMap<u8, char>>>,
@@ -16,7 +16,7 @@ impl CesarConfig {
         return Self {
             key_value: None,
             group_size: None,
-            number_of_posibility: None,
+            number_of_posibilities: None,
             index_digit_number: None,
             start_index: None,
             decrypt_alphabet: None,
@@ -30,7 +30,7 @@ impl CesarConfig {
         return Self {
             key_value: Some(2),
             group_size: Some(1),
-            number_of_posibility: Some(26),
+            number_of_posibilities: Some(26),
             index_digit_number: Some(2),
             start_index: Some(65),
             decrypt_alphabet: Some(Box::new(decrypt_alphabet)),
@@ -56,7 +56,7 @@ impl CesarConfig {
     fn is_set(&self) -> bool {
         if self.key_value.is_none() { return false };
         if self.group_size.is_none() { return false };
-        if self.number_of_posibility.is_none() { return false };
+        if self.number_of_posibilities.is_none() { return false };
         if self.index_digit_number.is_none() { return false };
         if self.start_index.is_none() { return false };
         if self.decrypt_alphabet.is_none() { return false };
@@ -65,7 +65,15 @@ impl CesarConfig {
         return true;
     }
 
-    pub fn key_value(mut self, key_value: u8) -> Self {
+    fn is_valid(&self) -> Result<(), &'static str> {
+        if self.key_value.unwrap() == 0 { return Err("The key value MUST be greater than 0") };
+        if self.group_size.unwrap() == 0 { return Err("The groupe size MUST be greater than 0") };
+        if self.index_digit_number.unwrap() == 0 { return Err("The number of digit MUST be greater than 0") };
+
+        return Ok(());
+    }
+
+    pub fn key_value(mut self, key_value: i32) -> Self {
         self.key_value = Some(key_value);
         return self;
     }
@@ -75,8 +83,8 @@ impl CesarConfig {
         return self;
     }
 
-    pub fn number_of_posibility(mut self, number_of_posibility: u64) -> Self {
-        self.number_of_posibility = Some(number_of_posibility);
+    pub fn number_of_posibilities(mut self, number_of_posibilities: u64) -> Self {
+        self.number_of_posibilities = Some(number_of_posibilities);
         return self;
     }
 
@@ -105,55 +113,134 @@ impl CesarConfig {
             return Err("The config MUST be set");
         }
 
+        self.is_valid()?;
+
         if word.is_empty() {
             return Ok("".to_string());
         }
 
-        let add_key_value = |characters: Vec<u64>| -> Vec<u64> {
-            return characters.iter()
-                .map(|value| (value + self.key_value.unwrap() as u64) % (self.number_of_posibility.unwrap() + self.start_index.unwrap() as u64))
-                .collect::<Vec<u64>>();
-        };
+        let number_of_posibities_by_group = self.number_of_posibilities_by_group_size();
 
-        let word_string_number = match self.word_to_byte_characters(word) {
-            Ok(content) => content,
-            Err(message) => return Err(message)
-        };
+        let mut byte_vector_of_word = self.word_to_byte_vector(word)?;
+        byte_vector_of_word = self.remove_index_value(byte_vector_of_word);
+        println!("removed index {:?}", byte_vector_of_word);
 
-        let string_end_completed = self.add_missing_character(word_string_number);
+        let splited_into_bytes = self.groups_bytes_character(byte_vector_of_word.into_iter()
+            .map(|value| value as u64)
+            .collect());
 
-        let word_string_number_vector = match self.characters_to_string_vector(&string_end_completed) {
-            Ok(content) => content,
-            Err(message) => return Err(message) 
-        };
+        println!("{:?}", splited_into_bytes);
 
-        let encrypted_characters = match self.string_vector_to_numeric_vector(word_string_number_vector) {
-            Ok(content) => add_key_value(content),
-            Err(message) => return Err(message),
-        };
-
-        return Ok(self.numbers_to_string_number(encrypted_characters).into_iter()
-            .map(|character_string| character_string.clone() )
-            .collect::<String>()
+        let added_key = self.add_key_value(
+            splited_into_bytes.clone()
         );
+        println!("added key {:?}", added_key);
 
+        let number_to_string = self.numbers_to_string_number(
+            added_key      
+        );
+        println!("{:?}", number_to_string);
+
+        return Ok(self.output_formater(
+            number_to_string
+        ));
     }
 
-    fn word_to_byte_characters(&self, word: &str) -> Result<String, &'static str> {
-        let mut characters: String = String::new();
+
+    fn number_of_posibilities_by_group_size(&self) -> u64 {
+        let mut result = String::new();
+    
+        for _ in 0..self.group_size.unwrap()  {
+            result = [result, (self.group_size.unwrap() - 1).to_string()].concat();
+        }
+    
+        return result.parse::<u64>().unwrap() + 1;
+    }
+
+    fn word_to_byte_vector(&self, word: &str) -> Result<Vec<u8>, &'static str> {
+        let mut bytes_vector: Vec<u8> = vec![];
         
         for character in word.chars() {
             if ! self.encrypt_alphabet.as_ref().unwrap().contains_key(&character) {
                 return Err("A character of the message doesn't exist in the current alphabet");
             }
 
-            characters = [
-                characters, 
-                self.encrypt_alphabet.as_ref().unwrap().get(&character).unwrap().to_string()
-            ].concat();
+            bytes_vector.push(*self.encrypt_alphabet.as_ref().unwrap()
+                .get(&character).unwrap());
+
         }
 
-        return Ok(characters);
+        return Ok(bytes_vector);
+    }
+
+    fn remove_index_value(&self, byte_characters: Vec<u8>) -> Vec<u8> {
+        return byte_characters.into_iter()
+            .map(|character| character - self.start_index.unwrap())
+            .collect();
+    }
+
+    fn groups_bytes_character(&self, byte_characters: Vec<u64>) -> Vec<u64> {
+        if byte_characters.is_empty() {
+            return vec![];
+        }
+
+        if byte_characters.len() == 1 {
+            return byte_characters;
+        }
+
+        return vec![evaluate_grouped_value(byte_characters[..self.group_size.unwrap()].to_vec())]
+            .into_iter()
+            .chain(
+                self.groups_bytes_character(byte_characters[self.group_size.unwrap()..].to_vec())
+                .into_iter()
+            )
+            .collect();
+    }
+
+    fn add_key_value(&self, list_of_values: Vec<u64>) -> Vec<u64> {
+        if self.key_value.unwrap() < 0 {
+            return list_of_values.into_iter()
+                .map(|value| {
+                    if (value as i128) < self.key_value.unwrap() as i128 {
+                        return  (value as i128 + self.number_of_posibilities.unwrap() as i128 + self.key_value.unwrap() as i128) as u64;
+                    }
+
+                    return ((value as i128 + self.key_value.unwrap() as i128) % self.number_of_posibilities.unwrap() as i128) as u64;
+                })
+                .collect();
+        }
+
+        return list_of_values.into_iter()
+            .into_iter()
+            .map(|value| ((value as i128 + self.key_value.unwrap() as i128) % self.number_of_posibilities.unwrap() as i128) as u64)
+            .collect();
+    }
+
+    fn numbers_to_string_number(&self, digit_characters: Vec<u64>) -> Vec<String> {
+        println!("before change: {:?}", digit_characters);
+        return digit_characters.into_iter()
+            .map(|value| value.to_string())
+            .collect();
+    }
+
+    fn output_formater(&self, list_of_values: Vec<String>) -> String {
+        // if self.group_size.unwrap() == 1 {
+        //     return list_of_values.into_iter()
+        //         .map(|value| self.decrypt_alphabet.unwrap().as_ref().get(value.parse::<u8>()).unwrap())
+        //         .collect();
+        // }
+
+        return list_of_values.into_iter()
+            .map(|element| [element, "-".to_string()].concat())
+            .collect();
+    }
+
+    fn add_missing_character(&self, string_to_completed: String) -> String {
+        if string_to_completed.len() % (self.group_size.unwrap() * self.index_digit_number.unwrap() as usize) == 0 {
+            return string_to_completed; 
+        }
+
+        return self.add_missing_character([string_to_completed, "0".to_string()].concat());
     }
 
     fn characters_to_string_vector(&self, characters: &str) -> Result<Vec<String>, &'static str>{
@@ -169,36 +256,24 @@ impl CesarConfig {
     }
 
     fn string_vector_to_numeric_vector(&self, splited_word: Vec<String>) -> Result<Vec<u64>, &'static str>{
+        let value_to_remove: u64 = self.start_index.unwrap() as u64 * (10 as u64).pow(self.group_size.unwrap() as u32);
+
         return Ok(splited_word.iter()
             .map(|element| element.parse::<u64>().expect("The character MUST be a numeric value"))
-            .map(|element| element - self.index_digit_number.unwrap() as u64)
+            .map(|element| element - value_to_remove)
             .collect::<Vec<u64>>());
     }
 
-    fn numbers_to_string_number(&self, digit_character: Vec<u64>) -> Vec<String> {
-        return digit_character.iter()
-            .map(|number| number.to_string())
-            .map(|mut string_number| {
-                if string_number.len() < self.group_size.unwrap() {
-                    while string_number.len() < self.group_size.unwrap() {
-                        string_number = ["0", &string_number].concat();
-                    }
+}
 
-                    return string_number;
-                }
+fn evaluate_grouped_value(elements_to_group: Vec<u64>) -> u64 {
+    let mut result = elements_to_group[0];
 
-                return string_number;
-            })
-            .collect();
+    for element in elements_to_group[1..].into_iter() {
+        result = result * 100 + element; 
     }
 
-    fn add_missing_character(&self, string_to_completed: String) -> String {
-        if string_to_completed.len() % (self.group_size.unwrap() * self.index_digit_number.unwrap() as usize) == 0 {
-            return string_to_completed; 
-        }
-
-        return self.add_missing_character([string_to_completed, "0".to_string()].concat());
-    }
+    return result;
 }
 
 #[cfg(test)]
@@ -209,7 +284,7 @@ mod tests {
     fn encrypt_word_test() {
         let conf = CesarConfig::default();
         let sample = "ABC";
-        let expected = String::from("676869");
+        let expected = String::from("234");
 
         assert_eq!(conf.encrypt_word(sample).unwrap(), expected);
     }
@@ -224,7 +299,7 @@ mod tests {
 
     #[test]
     fn encrypt_word_group_2_test() {
-        let conf = CesarConfig::default().group_size(2).number_of_posibility(2526);
+        let conf = CesarConfig::default().group_size(2).number_of_posibilities(2526);
         let sample = "ABC";
 
         assert_eq!(conf.encrypt_word(sample).unwrap(), "15141648");
@@ -234,9 +309,9 @@ mod tests {
     fn word_to_byte_characters_test() {
         let conf = CesarConfig::default();
         let sample = "ABC";
-        let expected = String::from("656667");
+        let expected: Vec<u8> = vec![65, 66, 67];
 
-        assert_eq!(expected, conf.word_to_byte_characters(sample).unwrap()); 
+        assert_eq!(expected, conf.word_to_byte_vector(sample).unwrap()); 
     }
 
     #[test]
@@ -244,9 +319,8 @@ mod tests {
     fn word_to_byte_characters_lowercase() {
         let conf = CesarConfig::default();
         let sample = "aBc";
-        let expected = String::from("656667");
 
-        assert_eq!(expected, conf.word_to_byte_characters(sample).unwrap()); 
+        conf.word_to_byte_vector(sample).unwrap(); 
     }
 
     
@@ -256,7 +330,34 @@ mod tests {
         let conf = CesarConfig::default();
         let sample = "&é(";
 
-        conf.word_to_byte_characters(sample).unwrap(); 
+        conf.word_to_byte_vector(sample).unwrap(); 
+    }
+
+    #[test]
+    fn remove_index_value_test() {
+        let conf = CesarConfig::default().start_index(65);
+        let sample: Vec<u8> = vec![65, 66, 67];
+        let expected: Vec<u8> = vec![0, 1, 2];
+
+        assert_eq!(expected, conf.remove_index_value(sample)); 
+    }
+
+    #[test]
+    fn remove_index_value_empty_input() {
+        let conf = CesarConfig::default().start_index(65);
+        let sample: Vec<u8> = vec![];
+        let expected: Vec<u8> = vec![];
+
+        assert_eq!(expected, conf.remove_index_value(sample));
+    }
+
+    #[test]
+    fn remove_index_value_too_low_values() {
+        let conf = CesarConfig::default().start_index(65);
+        let sample: Vec<u8> = vec![0, 1, 2];
+        let expected: Vec<u8> = vec![];
+
+        assert_eq!(expected, conf.remove_index_value(sample));
     }
 
     #[test]
@@ -301,9 +402,9 @@ mod tests {
             "67".to_string()
         ];
         let expected = vec![
-            65,
-            66,
-            67
+            0,
+            1,
+            2
         ];
 
         assert_eq!(expected, conf.string_vector_to_numeric_vector(sample).unwrap());
